@@ -1,0 +1,158 @@
+name: Nexus IAM CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  IMAGE_NAME: nexus-iam-backend
+
+jobs:
+
+  # ── 1. Lint ──────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Format (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Ruff
+        run: pip install ruff==0.4.4
+
+      - name: Lint
+        run: ruff check backend/ tests/
+
+      - name: Format check
+        run: ruff format --check backend/ tests/
+
+  # ── 2. Tests ─────────────────────────────────────────────────────────────────
+  test:
+    name: Tests & Coverage (pytest)
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install psycopg2-binary==2.9.9
+
+      - name: Run tests
+        env:
+          KEY_DIR: /tmp/nexus_test_keys
+          DATABASE_URL: postgresql://test:test@localhost/test
+        run: |
+          pytest tests/ \
+            --tb=short \
+            --cov=backend \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=70
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  # ── 3. Migration Chain ────────────────────────────────────────────────────────
+  migrations:
+    name: Alembic Chain Validation
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Alembic
+        run: pip install alembic==1.13.1 sqlalchemy==2.0.30
+
+      - name: Validate chain (offline)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://x:x@localhost/x
+        run: |
+          alembic history --verbose
+          echo "✓ Migration chain valid"
+
+  # ── 4. OPA Policy Tests ───────────────────────────────────────────────────────
+  opa-test:
+    name: OPA Policy Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OPA
+        run: |
+          curl -sSL -o /usr/local/bin/opa \
+            https://openpolicyagent.org/downloads/v0.63.0/opa_linux_amd64_static
+          chmod +x /usr/local/bin/opa
+          opa version
+
+      - name: Run policy tests
+        run: opa test policies/ --verbose
+
+      - name: Check policy formatting
+        run: opa fmt --diff policies/authz.rego
+
+  # ── 5. Docker Build & Trivy Scan ──────────────────────────────────────────────
+  security-scan:
+    name: Docker Build & Trivy CVE Scan
+    runs-on: ubuntu-latest
+    needs: [test, migrations, opa-test]
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: |
+          docker build \
+            --target production \
+            --tag ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            ./backend
+
+      - name: Trivy scan (table output)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+
+      - name: Trivy SARIF (GitHub Security tab)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: sarif
+          output: trivy-results.sarif
+        continue-on-error: true
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+        continue-on-error: true

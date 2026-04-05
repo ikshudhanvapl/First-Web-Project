@@ -1,0 +1,42 @@
+# docker-compose.override.yml
+#
+# Local development overrides — automatically merged by docker-compose.
+# This file is gitignored in production deployments.
+# It relaxes production constraints for a faster dev loop.
+
+version: '3.9'
+
+services:
+
+  backend:
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - DATABASE_URL=postgresql://nexus_user:dev_password@db:5432/nexus_iam
+      - KEY_DIR=/app/keys
+    # Expose backend directly for local API testing (e.g. curl, Postman)
+    ports:
+      - "8000:8000"
+    # Hot-reload: mount source so changes apply without rebuild
+    volumes:
+      - ./backend:/app
+      - nexus_keys:/app/keys
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --log-level debug
+
+  db:
+    # Expose Postgres locally for direct inspection (TablePlus, psql)
+    ports:
+      - "5432:5432"
+
+  opa:
+    # Expose OPA locally for policy testing
+    ports:
+      - "8181:8181"
+
+volumes:
+  nexus_keys:

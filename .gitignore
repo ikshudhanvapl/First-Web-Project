@@ -1,0 +1,57 @@
+# ── Secrets — NEVER commit these ─────────────────────────────────────────────
+secrets/
+*.txt
+.env
+.env.*
+.env.local
+
+# ── RSA Keys — generated at runtime, never committed ─────────────────────────
+backend/keys/
+keys/
+*.pem
+*.key
+
+# ── Docker volumes ────────────────────────────────────────────────────────────
+pgdata/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Test & coverage artefacts ─────────────────────────────────────────────────
+.pytest_cache/
+coverage_html/
+coverage.xml
+.coverage
+htmlcov/
+
+# ── Node ──────────────────────────────────────────────────────────────────────
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ── Editor ────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+
+# ── Alembic generated (keep versions/ tracked, ignore cache) ─────────────────
+backend/migrations/__pycache__/
+backend/migrations/versions/__pycache__/
